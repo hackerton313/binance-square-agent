@@ -268,7 +268,7 @@ def enhance_post(post):
     mentioned_coins = extract_coins(post)
     mentioned_tags = extract_tags(post)
     
-    # ⚠️ إذا كان هناك أكثر من عملتين، احذف الزائد
+    # ⚠️ احذف الزائد
     if len(mentioned_coins) > 2:
         coins_to_remove = mentioned_coins[2:]
         for coin in coins_to_remove:
@@ -276,7 +276,6 @@ def enhance_post(post):
         mentioned_coins = mentioned_coins[:2]
         post = re.sub(r'\s+', ' ', post).strip()
     
-    # ⚠️ إذا كان هناك أكثر من هاشتاقين، احذف الزائد
     if len(mentioned_tags) > 2:
         tags_to_remove = mentioned_tags[2:]
         for tag in tags_to_remove:
@@ -301,9 +300,8 @@ def enhance_post(post):
     
     return post
 
-# ===== القص الذكي (احتياط) =====
+# ===== القص الذكي =====
 def smart_trim(post, max_length=MAX_LENGTH):
-    """قص ذكي: يحافظ على الجمل الكاملة، العملات، والهاشتاغات"""
     if len(post) <= max_length:
         return post
     
@@ -377,23 +375,16 @@ PROMPTS = {
 News: {title}
 Details: {summary}
 
-⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS (including spaces)
-⚠️ COUNT characters before outputting
-⚠️ If your draft exceeds 1800, CUT at the last complete sentence
-⚠️ Use EXACTLY 2 $CASHTAGS maximum (no more!)
-⚠️ Use EXACTLY 2 #hashtags maximum (no more!)
+⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS
+⚠️ Use EXACTLY 2 $CASHTAGS maximum
+⚠️ Use EXACTLY 2 #hashtags maximum
 
 Rules:
 - Target: 1400-1700 characters
-- Start with relevant emoji
-- Structure:
-  1. Headline
-  2. What happened (2-3 sentences)
-  3. Why it matters (2-3 sentences)
-  4. Market impact (1-2 sentences)
-  5. Your take
-- Include 2 $CASHTAGS MAX
-- End with 2 #hashtags MAX
+- Start with emoji
+- Structure: Headline + What happened + Why it matters + Market impact + Your take
+- 2 $CASHTAGS MAX
+- 2 #hashtags MAX
 - Add engaging question
 
 OUTPUT ONLY THE POST TEXT.""",
@@ -402,23 +393,16 @@ OUTPUT ONLY THE POST TEXT.""",
 
 Topic: {title}
 
-⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS (including spaces)
-⚠️ COUNT characters before outputting
+⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS
 ⚠️ Use EXACTLY 2 $CASHTAGS maximum
 ⚠️ Use EXACTLY 2 #hashtags maximum
 
 Rules:
 - Target: 1400-1700 characters
 - Start with 📚
-- Structure:
-  1. Hook
-  2. What it is
-  3. How it works
-  4. Key benefits (2-3 bullets)
-  5. Common mistakes (2 bullets)
-  6. Practical tip
-- Include 2 $CASHTAGS MAX
-- End with 2 #hashtags MAX
+- Structure: Hook + What it is + How it works + Benefits + Mistakes + Tip
+- 2 $CASHTAGS MAX
+- 2 #hashtags MAX
 - Add engaging question
 
 OUTPUT ONLY THE POST TEXT.""",
@@ -428,19 +412,15 @@ OUTPUT ONLY THE POST TEXT.""",
 Market Data: {title}
 
 ⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS
-⚠️ Use EXACTLY 2 $CASHTAGS maximum (BTC and ETH ONLY)
+⚠️ Use ONLY $BTC and $ETH (2 max)
 ⚠️ Use EXACTLY 2 #hashtags maximum
 
 Rules:
 - Target: 1400-1700 characters
 - Start with 📊
-- Structure:
-  1. Current state
-  2. Key levels
-  3. Trends
-  4. Scenarios
-- Use ONLY $BTC and $ETH (2 max)
-- End with 2 #hashtags MAX
+- Structure: Current state + Key levels + Trends + Scenarios
+- $BTC and $ETH ONLY
+- 2 #hashtags MAX
 - Add engaging question
 
 OUTPUT ONLY THE POST TEXT.""",
@@ -456,14 +436,9 @@ Project: {title}
 Rules:
 - Target: 1400-1700 characters
 - Start with 💡
-- Structure:
-  1. What it is
-  2. Problem it solves
-  3. How it works
-  4. Key features (2-3 bullets)
-  5. Risks
-- Include 2 $CASHTAGS MAX (project + BTC/ETH)
-- End with 2 #hashtags MAX
+- Structure: What + Problem + How + Features + Risks
+- 2 $CASHTAGS MAX
+- 2 #hashtags MAX
 - Add engaging question
 
 OUTPUT ONLY THE POST TEXT.""",
@@ -473,20 +448,15 @@ OUTPUT ONLY THE POST TEXT.""",
 Promotion: {title}
 
 ⚠️ ABSOLUTE MAXIMUM: 1500 CHARACTERS
-⚠️ Use EXACTLY 2 $CASHTAGS maximum ($BNB and $USDT)
+⚠️ Use ONLY $BNB and $USDT
 ⚠️ Use EXACTLY 2 #hashtags maximum
 
 Rules:
 - Target: 1000-1400 characters
 - Start with 🎁
-- Structure:
-  1. Hook
-  2. Offer
-  3. How to participate
-  4. Benefits
-  5. Urgency
-- Use ONLY $BNB and $USDT (2 max)
-- End with 2 #hashtags MAX
+- Structure: Hook + Offer + How + Benefits + Urgency
+- $BNB and $USDT ONLY
+- 2 #hashtags MAX
 - Add engaging question
 
 OUTPUT ONLY THE POST TEXT.""",
@@ -496,28 +466,27 @@ OUTPUT ONLY THE POST TEXT.""",
 Data: {title}
 
 ⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS
-⚠️ Use EXACTLY 2 $CASHTAGS maximum (BTC and ETH)
+⚠️ Use ONLY $BTC and $ETH
 ⚠️ Use EXACTLY 2 #hashtags maximum
 
 Rules:
 - Target: 1400-1700 characters
 - Start with 🌙
-- Structure:
-  1. Summary
-  2. Key movements
-  3. What mattered
-  4. Tomorrow's watch
-  5. Final thought
-- Use ONLY $BTC and $ETH (2 max)
-- End with 2 #hashtags MAX
+- Structure: Summary + Movements + What mattered + Tomorrow + Final
+- $BTC and $ETH ONLY
+- 2 #hashtags MAX
 - Add engaging question
 
 OUTPUT ONLY THE POST TEXT.""",
 }
 
-# ===== الكتابة (مع تحذير + قص ذكي احتياطي) =====
+# ===== الكتابة (مع معالجة 429) =====
 def write_post(prompt, max_retries=3):
     last_length = 0
+    
+    # ⚠️ حد الطلب
+    if len(prompt) > 2500:
+        prompt = prompt[:2500]
     
     for attempt in range(max_retries):
         try:
@@ -525,19 +494,18 @@ def write_post(prompt, max_retries=3):
             
             if attempt > 0 and last_length > MAX_LENGTH:
                 excess = last_length - MAX_LENGTH
-                user_prompt += f"\n\n⚠️⚠️ PREVIOUS ATTEMPT WAS {last_length} CHARACTERS."
-                user_prompt += f"\n⚠️⚠️ YOU EXCEEDED BY {excess} CHARACTERS."
-                user_prompt += f"\n⚠️⚠️ YOU MUST CUT AT LEAST {excess + 200} CHARACTERS."
-                user_prompt += f"\n⚠️⚠️ BE CONCISE. TARGET 1400-1700."
+                user_prompt += f"\n\n⚠️ PREVIOUS WAS {last_length} CHARS. CUT {excess + 200}+ CHARS."
+                if len(user_prompt) > 3000:
+                    user_prompt = user_prompt[:3000]
             
             response = groq_client.chat.completions.create(
                 model=MODEL,
                 messages=[
-                    {"role": "system", "content": f"You are a crypto writer for Binance Square. ABSOLUTE LIMIT: {MAX_LENGTH} characters. MAX 2 $CASHTAGS. MAX 2 #hashtags. Output ONLY the post text."},
+                    {"role": "system", "content": f"Crypto writer for Binance Square. LIMIT: {MAX_LENGTH} chars. MAX 2 $CASHTAGS. MAX 2 #hashtags. Output only post text."},
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.7,
-                max_tokens=2000
+                max_tokens=1000
             )
             
             content = response.choices[0].message.content
@@ -561,20 +529,25 @@ def write_post(prompt, max_retries=3):
             time.sleep(2)
             
         except Exception as e:
-            print(f"  ❌ {str(e)[:80]}")
-            time.sleep(3)
+            err = str(e)
+            if "429" in err or "too large" in err or "rate" in err.lower():
+                print(f"  ⏳ Rate limit، انتظار 30 ثانية...")
+                time.sleep(30)
+            else:
+                print(f"  ❌ {err[:80]}")
+                time.sleep(3)
     
-    # ⭐ الطبقة الاحتياطية: القص الذكي
+    # القص الذكي
     print(f"  🔧 تفعيل القص الذكي")
     try:
         response = groq_client.chat.completions.create(
             model=MODEL,
             messages=[
                 {"role": "system", "content": f"Write a crypto post. Max {MAX_LENGTH} chars. Max 2 coins, 2 hashtags."},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt[:2000]}
             ],
             temperature=0.7,
-            max_tokens=2000
+            max_tokens=1000
         )
         content = response.choices[0].message.content
         if content:
@@ -582,13 +555,12 @@ def write_post(prompt, max_retries=3):
             post = enhance_post(post)
             post = smart_trim(post, MAX_LENGTH)
             
-            # فحص نهائي
             is_good, reason = is_good_quality(post)
             if is_good:
                 return post
             print(f"  ⚠️ بعد القص: {reason}")
-    except:
-        pass
+    except Exception as e:
+        print(f"  ❌ القص: {str(e)[:80]}")
     
     return None
 
