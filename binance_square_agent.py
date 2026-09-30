@@ -8,8 +8,8 @@ import json
 import random
 from datetime import datetime
 
-GROQ_API_KEY = "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"
-BINANCE_SQUARE_API_KEY = "92535fb0b59946a19670ae719386b017"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+BINANCE_SQUARE_API_KEY = os.environ.get("BINANCE_SQUARE_API_KEY")
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 MODEL = "qwen/qwen3.8-27b"
