@@ -22,7 +22,7 @@ MODEL = "qwen/qwen3.8-27b"
 MAX_LENGTH = 1800
 MIN_LENGTH = 1000
 
-# ===== قائمة العملات (70) =====
+# ===== قائمة العملات =====
 ALL_COINS = [
     'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'TRX',
     'LINK', 'MATIC', 'LTC', 'BCH', 'UNI', 'ATOM', 'XLM', 'ETC', 'FIL', 'APT',
@@ -33,7 +33,7 @@ ALL_COINS = [
     'AR', 'KSM', 'ZEC', 'DASH', 'WAVES', 'EGLD', 'THETA', 'CAKE', 'AXL', 'RUNE',
 ]
 
-# ===== قائمة الهاشتاغات (40) =====
+# ===== قائمة الهاشتاغات =====
 ALL_TAGS = [
     'Crypto', 'Cryptocurrency', 'Blockchain', 'Web3', 'DeFi',
     'Trading', 'Investing', 'Altcoins', 'BullRun', 'BearMarket',
@@ -45,14 +45,13 @@ ALL_TAGS = [
     'Layer2', 'Memecoins', 'AIcrypto', 'RWA', 'Bitcoin', 'Ethereum', 'Solana',
 ]
 
-# ===== مصادر الأخبار =====
 FEEDS = {
     'CoinDesk': 'https://www.coindesk.com/arc/outboundfeeds/rss/',
     'CoinTelegraph': 'https://cointelegraph.com/rss',
     'CryptoSlate': 'https://cryptoslate.com/feed/',
 }
 
-# ===== مواضيع تعليمية (100) =====
+# ===== مواضيع تعليمية =====
 EDUCATION_TOPICS = [
     "What is a Stop Loss and why it's crucial for risk management",
     "Risk management: The 1% rule for trading",
@@ -246,7 +245,7 @@ def fetch_trending():
     except:
         return []
 
-# ===== التصحيح والتحسين =====
+# ===== التصحيح والاستخراج =====
 def fix_tickers(post):
     def replace_ticker(match):
         ticker = match.group(1).upper()
@@ -263,97 +262,101 @@ def extract_coins(post):
 def extract_tags(post):
     return list(set([t for t in re.findall(r'#([A-Za-z]+)', post) if t in ALL_TAGS]))
 
-def enhance_post(post):
-    """تحسين المنشور: ضمان 2 عملات و 2 هاشتاقات بالضبط"""
-    mentioned_coins = extract_coins(post)
-    mentioned_tags = extract_tags(post)
-    
-    # ⚠️ احذف الزائد
-    if len(mentioned_coins) > 2:
-        coins_to_remove = mentioned_coins[2:]
-        for coin in coins_to_remove:
-            post = post.replace(f"${coin}", "")
-        mentioned_coins = mentioned_coins[:2]
-        post = re.sub(r'\s+', ' ', post).strip()
-    
-    if len(mentioned_tags) > 2:
-        tags_to_remove = mentioned_tags[2:]
-        for tag in tags_to_remove:
-            post = post.replace(f"#{tag}", "")
-        mentioned_tags = mentioned_tags[:2]
-        post = re.sub(r'\s+', ' ', post).strip()
-    
-    # أضف إذا نقص
-    needed_coins = max(0, 2 - len(mentioned_coins))
-    needed_tags = max(0, 2 - len(mentioned_tags))
-    
-    extra_coins = pick_fresh_coins(needed_coins) if needed_coins > 0 else []
-    extra_tags = pick_fresh_tags(needed_tags) if needed_tags > 0 else []
-    
-    if extra_coins:
-        post += "\n\n" + " ".join([f"${c}" for c in extra_coins])
-    if extra_tags:
-        post += "\n" + " ".join([f"#{t}" for t in extra_tags])
-    
-    save_recent_coins(mentioned_coins + extra_coins)
-    save_recent_tags(mentioned_tags + extra_tags)
-    
-    return post
-
-# ===== القص الذكي =====
-def smart_trim(post, max_length=MAX_LENGTH):
+# ===== القص الإجباري =====
+def force_trim(post, max_length):
+    """قص إجباري: يقطع عند آخر نقطة، ويضمن وجود العملات والهاشتاغات"""
     if len(post) <= max_length:
         return post
     
     coins = re.findall(r'\$[A-Z]{2,10}', post)
     tags = re.findall(r'#[A-Za-z]+', post)
     
-    post_clean = re.sub(r'\$[A-Z]{2,10}', '', post)
-    post_clean = re.sub(r'#[A-Za-z]+', '', post_clean)
-    post_clean = re.sub(r'\s+', ' ', post_clean).strip()
+    post_body = re.sub(r'\$[A-Z]{2,10}', '', post)
+    post_body = re.sub(r'#[A-Za-z]+', '', post_body)
+    post_body = re.sub(r'\s+', ' ', post_body).strip()
     
+    # هامش للعملات والهاشتاغات
     suffix = ""
     if coins:
         suffix += "\n\n" + " ".join(list(set(coins))[:2])
     if tags:
         suffix += "\n" + " ".join(list(set(tags))[:2])
     
-    available = max_length - len(suffix) - 20
+    available = max_length - len(suffix) - 30
     
-    if len(post_clean) > available:
-        truncated = post_clean[:available]
-        last_period = max(
-            truncated.rfind('.'), 
-            truncated.rfind('!'), 
+    if len(post_body) > available:
+        truncated = post_body[:available]
+        last_punct = max(
+            truncated.rfind('.'),
+            truncated.rfind('!'),
             truncated.rfind('?')
         )
-        if last_period > available * 0.6:
-            post_clean = post_clean[:last_period + 1]
+        if last_punct > available * 0.5:
+            post_body = post_body[:last_punct + 1]
         else:
-            post_clean = truncated.rstrip() + "..."
+            last_space = truncated.rfind(' ')
+            if last_space > 0:
+                post_body = post_body[:last_space] + "."
+            else:
+                post_body = truncated + "."
     
-    return (post_clean + suffix).strip()
+    return (post_body + suffix).strip()
+
+# ===== ضمان العملات والهاشتاغات =====
+def ensure_coins_tags(post):
+    """يضمن وجود عملتين وهاشتاقين بالضبط (لا أكثر ولا أقل)"""
+    coins = extract_coins(post)
+    tags = extract_tags(post)
+    
+    # احذف الزائد
+    if len(coins) > 2:
+        for coin in coins[2:]:
+            post = post.replace(f"${coin}", "")
+        coins = coins[:2]
+    
+    if len(tags) > 2:
+        for tag in tags[2:]:
+            post = post.replace(f"#{tag}", "")
+        tags = tags[:2]
+    
+    post = re.sub(r'\s+', ' ', post).strip()
+    
+    # أضف إذا نقص
+    if len(coins) < 2:
+        extra = pick_fresh_coins(2 - len(coins))
+        post += "\n\n" + " ".join([f"${c}" for c in extra])
+        coins.extend(extra)
+    
+    if len(tags) < 2:
+        extra = pick_fresh_tags(2 - len(tags))
+        post += "\n" + " ".join([f"#{t}" for t in extra])
+        tags.extend(extra)
+    
+    save_recent_coins(coins)
+    save_recent_tags(tags)
+    
+    return post
 
 # ===== فحص الجودة =====
 def is_good_quality(post):
     if not post:
         return False, "فارغ"
     if len(post) < MIN_LENGTH:
-        return False, f"قصير ({len(post)} < {MIN_LENGTH})"
+        return False, f"قصير ({len(post)})"
     if len(post) > MAX_LENGTH:
-        return False, f"طويل ({len(post)} > {MAX_LENGTH})"
+        return False, f"طويل ({len(post)})"
     
     coins = extract_coins(post)
     if len(coins) < 1:
         return False, "لا cashtag"
     if len(coins) > 2:
-        return False, f"عدد كبير من العملات ({len(coins)})"
+        return False, f"عملات كثيرة ({len(coins)})"
     
     tags = extract_tags(post)
     if len(tags) < 1:
         return False, "لا hashtag"
     if len(tags) > 2:
-        return False, f"عدد كبير من الهاشتاغات ({len(tags)})"
+        return False, f"هاشتاغات كثيرة ({len(tags)})"
     
     return True, "جيد"
 
@@ -412,7 +415,7 @@ OUTPUT ONLY THE POST TEXT.""",
 Market Data: {title}
 
 ⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS
-⚠️ Use ONLY $BTC and $ETH (2 max)
+⚠️ Use ONLY $BTC and $ETH
 ⚠️ Use EXACTLY 2 #hashtags maximum
 
 Rules:
@@ -480,29 +483,15 @@ Rules:
 OUTPUT ONLY THE POST TEXT.""",
 }
 
-# ===== الكتابة (مع معالجة 429) =====
-def write_post(prompt, max_retries=3):
-    last_length = 0
-    
-    # ⚠️ حد الطلب
-    if len(prompt) > 2500:
-        prompt = prompt[:2500]
-    
+# ===== الكتابة =====
+def write_post(prompt, max_retries=2):
     for attempt in range(max_retries):
         try:
-            user_prompt = prompt
-            
-            if attempt > 0 and last_length > MAX_LENGTH:
-                excess = last_length - MAX_LENGTH
-                user_prompt += f"\n\n⚠️ PREVIOUS WAS {last_length} CHARS. CUT {excess + 200}+ CHARS."
-                if len(user_prompt) > 3000:
-                    user_prompt = user_prompt[:3000]
-            
             response = groq_client.chat.completions.create(
                 model=MODEL,
                 messages=[
-                    {"role": "system", "content": f"Crypto writer for Binance Square. LIMIT: {MAX_LENGTH} chars. MAX 2 $CASHTAGS. MAX 2 #hashtags. Output only post text."},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "system", "content": f"Crypto writer for Binance Square. LIMIT: {MAX_LENGTH} chars. MAX 2 $CASHTAGS. MAX 2 #hashtags. Output ONLY post text."},
+                    {"role": "user", "content": prompt[:2500]}
                 ],
                 temperature=0.7,
                 max_tokens=1000
@@ -513,14 +502,16 @@ def write_post(prompt, max_retries=3):
                 continue
             
             post = fix_tickers(content.strip())
-            post = enhance_post(post)
-            last_length = len(post)
             
-            if last_length > MAX_LENGTH:
-                print(f"  ⚠️ محاولة {attempt+1}: {last_length} حرف (تجاوز)")
-                time.sleep(2)
-                continue
+            # ⭐ القص الإجباري (لا إعادة محاولة)
+            if len(post) > MAX_LENGTH:
+                print(f"  🔧 قص إجباري: {len(post)} → {MAX_LENGTH}")
+                post = force_trim(post, MAX_LENGTH)
             
+            # ⭐ ضمان العملات والهاشتاغات
+            post = ensure_coins_tags(post)
+            
+            # ⭐ فحص نهائي
             is_good, reason = is_good_quality(post)
             if is_good:
                 return post
@@ -536,31 +527,6 @@ def write_post(prompt, max_retries=3):
             else:
                 print(f"  ❌ {err[:80]}")
                 time.sleep(3)
-    
-    # القص الذكي
-    print(f"  🔧 تفعيل القص الذكي")
-    try:
-        response = groq_client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": f"Write a crypto post. Max {MAX_LENGTH} chars. Max 2 coins, 2 hashtags."},
-                {"role": "user", "content": prompt[:2000]}
-            ],
-            temperature=0.7,
-            max_tokens=1000
-        )
-        content = response.choices[0].message.content
-        if content:
-            post = fix_tickers(content.strip())
-            post = enhance_post(post)
-            post = smart_trim(post, MAX_LENGTH)
-            
-            is_good, reason = is_good_quality(post)
-            if is_good:
-                return post
-            print(f"  ⚠️ بعد القص: {reason}")
-    except Exception as e:
-        print(f"  ❌ القص: {str(e)[:80]}")
     
     return None
 
