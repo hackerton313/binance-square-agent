@@ -19,7 +19,7 @@ if not GROQ_API_KEY or not BINANCE_SQUARE_API_KEY:
 groq_client = Groq(api_key=GROQ_API_KEY)
 MODEL = "qwen/qwen3.8-27b"
 
-MAX_LENGTH = 1800  # الحد الأقصى المطلق
+MAX_LENGTH = 1800
 MIN_LENGTH = 1000
 
 # ===== قائمة العملات (70) =====
@@ -264,14 +264,32 @@ def extract_tags(post):
     return list(set([t for t in re.findall(r'#([A-Za-z]+)', post) if t in ALL_TAGS]))
 
 def enhance_post(post):
+    """تحسين المنشور: ضمان 2 عملات و 2 هاشتاقات بالضبط"""
     mentioned_coins = extract_coins(post)
     mentioned_tags = extract_tags(post)
     
-    needed_coins = max(1, 2 - len(mentioned_coins))
-    needed_tags = max(1, 2 - len(mentioned_tags))
+    # ⚠️ إذا كان هناك أكثر من عملتين، احذف الزائد
+    if len(mentioned_coins) > 2:
+        coins_to_remove = mentioned_coins[2:]
+        for coin in coins_to_remove:
+            post = post.replace(f"${coin}", "")
+        mentioned_coins = mentioned_coins[:2]
+        post = re.sub(r'\s+', ' ', post).strip()
     
-    extra_coins = pick_fresh_coins(needed_coins) if len(mentioned_coins) < 2 else []
-    extra_tags = pick_fresh_tags(needed_tags) if len(mentioned_tags) < 2 else []
+    # ⚠️ إذا كان هناك أكثر من هاشتاقين، احذف الزائد
+    if len(mentioned_tags) > 2:
+        tags_to_remove = mentioned_tags[2:]
+        for tag in tags_to_remove:
+            post = post.replace(f"#{tag}", "")
+        mentioned_tags = mentioned_tags[:2]
+        post = re.sub(r'\s+', ' ', post).strip()
+    
+    # أضف إذا نقص
+    needed_coins = max(0, 2 - len(mentioned_coins))
+    needed_tags = max(0, 2 - len(mentioned_tags))
+    
+    extra_coins = pick_fresh_coins(needed_coins) if needed_coins > 0 else []
+    extra_tags = pick_fresh_tags(needed_tags) if needed_tags > 0 else []
     
     if extra_coins:
         post += "\n\n" + " ".join([f"${c}" for c in extra_coins])
@@ -285,22 +303,17 @@ def enhance_post(post):
 
 # ===== القص الذكي (احتياط) =====
 def smart_trim(post, max_length=MAX_LENGTH):
-    """
-    قص ذكي: يحافظ على الجمل الكاملة، العملات، والهاشتاغات
-    """
+    """قص ذكي: يحافظ على الجمل الكاملة، العملات، والهاشتاغات"""
     if len(post) <= max_length:
         return post
     
-    # احفظ العملات والهاشتاغات
     coins = re.findall(r'\$[A-Z]{2,10}', post)
     tags = re.findall(r'#[A-Za-z]+', post)
     
-    # احذفها من النص مؤقتًا
     post_clean = re.sub(r'\$[A-Z]{2,10}', '', post)
     post_clean = re.sub(r'#[A-Za-z]+', '', post_clean)
     post_clean = re.sub(r'\s+', ' ', post_clean).strip()
     
-    # احسب المساحة المتاحة
     suffix = ""
     if coins:
         suffix += "\n\n" + " ".join(list(set(coins))[:2])
@@ -309,7 +322,6 @@ def smart_trim(post, max_length=MAX_LENGTH):
     
     available = max_length - len(suffix) - 20
     
-    # اقص عند آخر نقطة كاملة
     if len(post_clean) > available:
         truncated = post_clean[:available]
         last_period = max(
@@ -332,10 +344,19 @@ def is_good_quality(post):
         return False, f"قصير ({len(post)} < {MIN_LENGTH})"
     if len(post) > MAX_LENGTH:
         return False, f"طويل ({len(post)} > {MAX_LENGTH})"
-    if not re.search(r'\$[A-Z]{2,10}', post):
+    
+    coins = extract_coins(post)
+    if len(coins) < 1:
         return False, "لا cashtag"
-    if not re.search(r'#[A-Za-z]+', post):
+    if len(coins) > 2:
+        return False, f"عدد كبير من العملات ({len(coins)})"
+    
+    tags = extract_tags(post)
+    if len(tags) < 1:
         return False, "لا hashtag"
+    if len(tags) > 2:
+        return False, f"عدد كبير من الهاشتاغات ({len(tags)})"
+    
     return True, "جيد"
 
 # ===== نوع المحتوى =====
@@ -349,7 +370,7 @@ def get_content_type():
     closest = min(schedule.keys(), key=lambda h: abs(h - hour))
     return schedule[closest]
 
-# ===== القوالب (معدّلة بحد 1800) =====
+# ===== القوالب =====
 PROMPTS = {
     'news': """Write a DETAILED Binance Square post about this crypto news.
 
@@ -359,6 +380,8 @@ Details: {summary}
 ⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS (including spaces)
 ⚠️ COUNT characters before outputting
 ⚠️ If your draft exceeds 1800, CUT at the last complete sentence
+⚠️ Use EXACTLY 2 $CASHTAGS maximum (no more!)
+⚠️ Use EXACTLY 2 #hashtags maximum (no more!)
 
 Rules:
 - Target: 1400-1700 characters
@@ -369,8 +392,8 @@ Rules:
   3. Why it matters (2-3 sentences)
   4. Market impact (1-2 sentences)
   5. Your take
-- Include $CASHTAGS for mentioned coins
-- End with 2-3 #hashtags
+- Include 2 $CASHTAGS MAX
+- End with 2 #hashtags MAX
 - Add engaging question
 
 OUTPUT ONLY THE POST TEXT.""",
@@ -381,7 +404,8 @@ Topic: {title}
 
 ⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS (including spaces)
 ⚠️ COUNT characters before outputting
-⚠️ If your draft exceeds 1800, CUT at the last complete sentence
+⚠️ Use EXACTLY 2 $CASHTAGS maximum
+⚠️ Use EXACTLY 2 #hashtags maximum
 
 Rules:
 - Target: 1400-1700 characters
@@ -393,8 +417,8 @@ Rules:
   4. Key benefits (2-3 bullets)
   5. Common mistakes (2 bullets)
   6. Practical tip
-- Include $CASHTAGS if relevant
-- End with 2-3 #hashtags
+- Include 2 $CASHTAGS MAX
+- End with 2 #hashtags MAX
 - Add engaging question
 
 OUTPUT ONLY THE POST TEXT.""",
@@ -403,8 +427,9 @@ OUTPUT ONLY THE POST TEXT.""",
 
 Market Data: {title}
 
-⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS (including spaces)
-⚠️ COUNT characters before outputting
+⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS
+⚠️ Use EXACTLY 2 $CASHTAGS maximum (BTC and ETH ONLY)
+⚠️ Use EXACTLY 2 #hashtags maximum
 
 Rules:
 - Target: 1400-1700 characters
@@ -414,8 +439,8 @@ Rules:
   2. Key levels
   3. Trends
   4. Scenarios
-- Include $BTC, $ETH
-- End with 2-3 #hashtags
+- Use ONLY $BTC and $ETH (2 max)
+- End with 2 #hashtags MAX
 - Add engaging question
 
 OUTPUT ONLY THE POST TEXT.""",
@@ -424,8 +449,9 @@ OUTPUT ONLY THE POST TEXT.""",
 
 Project: {title}
 
-⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS (including spaces)
-⚠️ COUNT characters before outputting
+⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS
+⚠️ Use EXACTLY 2 $CASHTAGS maximum
+⚠️ Use EXACTLY 2 #hashtags maximum
 
 Rules:
 - Target: 1400-1700 characters
@@ -436,8 +462,8 @@ Rules:
   3. How it works
   4. Key features (2-3 bullets)
   5. Risks
-- Include $CASHTAGS
-- End with 2-3 #hashtags
+- Include 2 $CASHTAGS MAX (project + BTC/ETH)
+- End with 2 #hashtags MAX
 - Add engaging question
 
 OUTPUT ONLY THE POST TEXT.""",
@@ -447,7 +473,8 @@ OUTPUT ONLY THE POST TEXT.""",
 Promotion: {title}
 
 ⚠️ ABSOLUTE MAXIMUM: 1500 CHARACTERS
-⚠️ COUNT before outputting
+⚠️ Use EXACTLY 2 $CASHTAGS maximum ($BNB and $USDT)
+⚠️ Use EXACTLY 2 #hashtags maximum
 
 Rules:
 - Target: 1000-1400 characters
@@ -458,8 +485,8 @@ Rules:
   3. How to participate
   4. Benefits
   5. Urgency
-- Include $BNB or $USDT
-- End with 2-3 #hashtags
+- Use ONLY $BNB and $USDT (2 max)
+- End with 2 #hashtags MAX
 - Add engaging question
 
 OUTPUT ONLY THE POST TEXT.""",
@@ -469,7 +496,8 @@ OUTPUT ONLY THE POST TEXT.""",
 Data: {title}
 
 ⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS
-⚠️ COUNT before outputting
+⚠️ Use EXACTLY 2 $CASHTAGS maximum (BTC and ETH)
+⚠️ Use EXACTLY 2 #hashtags maximum
 
 Rules:
 - Target: 1400-1700 characters
@@ -480,8 +508,8 @@ Rules:
   3. What mattered
   4. Tomorrow's watch
   5. Final thought
-- Include $BTC, $ETH
-- End with 2-3 #hashtags
+- Use ONLY $BTC and $ETH (2 max)
+- End with 2 #hashtags MAX
 - Add engaging question
 
 OUTPUT ONLY THE POST TEXT.""",
@@ -495,7 +523,6 @@ def write_post(prompt, max_retries=3):
         try:
             user_prompt = prompt
             
-            # إذا كانت محاولة ثانية أو ثالثة، أضف تحذير
             if attempt > 0 and last_length > MAX_LENGTH:
                 excess = last_length - MAX_LENGTH
                 user_prompt += f"\n\n⚠️⚠️ PREVIOUS ATTEMPT WAS {last_length} CHARACTERS."
@@ -506,7 +533,7 @@ def write_post(prompt, max_retries=3):
             response = groq_client.chat.completions.create(
                 model=MODEL,
                 messages=[
-                    {"role": "system", "content": f"You are a crypto writer for Binance Square. ABSOLUTE LIMIT: {MAX_LENGTH} characters including spaces. Output ONLY the post text. If you exceed, cut at last complete sentence."},
+                    {"role": "system", "content": f"You are a crypto writer for Binance Square. ABSOLUTE LIMIT: {MAX_LENGTH} characters. MAX 2 $CASHTAGS. MAX 2 #hashtags. Output ONLY the post text."},
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.7,
@@ -521,7 +548,6 @@ def write_post(prompt, max_retries=3):
             post = enhance_post(post)
             last_length = len(post)
             
-            # فحص
             if last_length > MAX_LENGTH:
                 print(f"  ⚠️ محاولة {attempt+1}: {last_length} حرف (تجاوز)")
                 time.sleep(2)
@@ -539,12 +565,12 @@ def write_post(prompt, max_retries=3):
             time.sleep(3)
     
     # ⭐ الطبقة الاحتياطية: القص الذكي
-    print(f"  🔧 تفعيل القص الذكي (آخر محاولة)")
+    print(f"  🔧 تفعيل القص الذكي")
     try:
         response = groq_client.chat.completions.create(
             model=MODEL,
             messages=[
-                {"role": "system", "content": f"Write a crypto post. Max {MAX_LENGTH} chars."},
+                {"role": "system", "content": f"Write a crypto post. Max {MAX_LENGTH} chars. Max 2 coins, 2 hashtags."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
@@ -554,9 +580,13 @@ def write_post(prompt, max_retries=3):
         if content:
             post = fix_tickers(content.strip())
             post = enhance_post(post)
-            # القص الذكي
             post = smart_trim(post, MAX_LENGTH)
-            return post
+            
+            # فحص نهائي
+            is_good, reason = is_good_quality(post)
+            if is_good:
+                return post
+            print(f"  ⚠️ بعد القص: {reason}")
     except:
         pass
     
