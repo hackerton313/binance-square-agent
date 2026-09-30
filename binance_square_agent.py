@@ -19,6 +19,9 @@ if not GROQ_API_KEY or not BINANCE_SQUARE_API_KEY:
 groq_client = Groq(api_key=GROQ_API_KEY)
 MODEL = "qwen/qwen3.8-27b"
 
+MAX_LENGTH = 1800  # الحد الأقصى المطلق
+MIN_LENGTH = 1000
+
 # ===== قائمة العملات (70) =====
 ALL_COINS = [
     'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'TRX',
@@ -204,7 +207,7 @@ def pick_fresh_tags(count=2):
         available = ALL_TAGS
     return random.sample(available, min(count, len(available)))
 
-# ===== 1. قراءة الأخبار =====
+# ===== قراءة الأخبار =====
 def fetch_news(limit=20):
     all_news = []
     for source, url in FEEDS.items():
@@ -225,7 +228,6 @@ def fetch_news(limit=20):
     random.shuffle(all_news)
     return all_news[:limit]
 
-# ===== 2. جلب الأسعار =====
 def fetch_prices():
     url = "https://api.coingecko.com/api/v3/simple/price"
     params = {
@@ -234,22 +236,17 @@ def fetch_prices():
         'include_24hr_change': 'true'
     }
     try:
-        response = requests.get(url, params=params, timeout=15)
-        return response.json()
+        return requests.get(url, params=params, timeout=15).json()
     except:
         return {}
 
-# ===== 3. جلب المشاريع الرائجة =====
 def fetch_trending():
-    url = "https://api.coingecko.com/api/v3/search/trending"
     try:
-        response = requests.get(url, timeout=15)
-        data = response.json()
-        return data.get('coins', [])[:5]
+        return requests.get("https://api.coingecko.com/api/v3/search/trending", timeout=15).json().get('coins', [])[:5]
     except:
         return []
 
-# ===== 4. تصحيح الرموز =====
+# ===== التصحيح والتحسين =====
 def fix_tickers(post):
     def replace_ticker(match):
         ticker = match.group(1).upper()
@@ -260,14 +257,12 @@ def fix_tickers(post):
     post = re.sub(r'\s+', ' ', post)
     return post.strip()
 
-# ===== 5. استخراج المذكور =====
 def extract_coins(post):
     return list(set([c for c in re.findall(r'\$([A-Z]{2,10})', post) if c in ALL_COINS]))
 
 def extract_tags(post):
     return list(set([t for t in re.findall(r'#([A-Za-z]+)', post) if t in ALL_TAGS]))
 
-# ===== 6. تحسين المنشور =====
 def enhance_post(post):
     mentioned_coins = extract_coins(post)
     mentioned_tags = extract_tags(post)
@@ -288,21 +283,62 @@ def enhance_post(post):
     
     return post
 
-# ===== 7. فحص الجودة =====
+# ===== القص الذكي (احتياط) =====
+def smart_trim(post, max_length=MAX_LENGTH):
+    """
+    قص ذكي: يحافظ على الجمل الكاملة، العملات، والهاشتاغات
+    """
+    if len(post) <= max_length:
+        return post
+    
+    # احفظ العملات والهاشتاغات
+    coins = re.findall(r'\$[A-Z]{2,10}', post)
+    tags = re.findall(r'#[A-Za-z]+', post)
+    
+    # احذفها من النص مؤقتًا
+    post_clean = re.sub(r'\$[A-Z]{2,10}', '', post)
+    post_clean = re.sub(r'#[A-Za-z]+', '', post_clean)
+    post_clean = re.sub(r'\s+', ' ', post_clean).strip()
+    
+    # احسب المساحة المتاحة
+    suffix = ""
+    if coins:
+        suffix += "\n\n" + " ".join(list(set(coins))[:2])
+    if tags:
+        suffix += "\n" + " ".join(list(set(tags))[:2])
+    
+    available = max_length - len(suffix) - 20
+    
+    # اقص عند آخر نقطة كاملة
+    if len(post_clean) > available:
+        truncated = post_clean[:available]
+        last_period = max(
+            truncated.rfind('.'), 
+            truncated.rfind('!'), 
+            truncated.rfind('?')
+        )
+        if last_period > available * 0.6:
+            post_clean = post_clean[:last_period + 1]
+        else:
+            post_clean = truncated.rstrip() + "..."
+    
+    return (post_clean + suffix).strip()
+
+# ===== فحص الجودة =====
 def is_good_quality(post):
     if not post:
         return False, "فارغ"
-    if len(post) < 1000:
-        return False, f"قصير ({len(post)} < 1000)"
-    if len(post) > 2000:
-        return False, f"طويل ({len(post)} > 2000)"
+    if len(post) < MIN_LENGTH:
+        return False, f"قصير ({len(post)} < {MIN_LENGTH})"
+    if len(post) > MAX_LENGTH:
+        return False, f"طويل ({len(post)} > {MAX_LENGTH})"
     if not re.search(r'\$[A-Z]{2,10}', post):
         return False, "لا cashtag"
     if not re.search(r'#[A-Za-z]+', post):
         return False, "لا hashtag"
     return True, "جيد"
 
-# ===== 8. نوع المحتوى =====
+# ===== نوع المحتوى =====
 def get_content_type():
     hour = datetime.utcnow().hour
     schedule = {
@@ -313,43 +349,50 @@ def get_content_type():
     closest = min(schedule.keys(), key=lambda h: abs(h - hour))
     return schedule[closest]
 
-# ===== 9. قوالب المحتوى =====
+# ===== القوالب (معدّلة بحد 1800) =====
 PROMPTS = {
     'news': """Write a DETAILED Binance Square post about this crypto news.
 
 News: {title}
 Details: {summary}
 
+⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS (including spaces)
+⚠️ COUNT characters before outputting
+⚠️ If your draft exceeds 1800, CUT at the last complete sentence
+
 Rules:
-- Length: 1000-1800 characters (THOROUGH analysis!)
-- Start with a relevant emoji
+- Target: 1400-1700 characters
+- Start with relevant emoji
 - Structure:
-  1. Headline (1 sentence)
+  1. Headline
   2. What happened (2-3 sentences)
   3. Why it matters (2-3 sentences)
   4. Market impact (1-2 sentences)
-  5. Your take (1 sentence)
-- Use $CASHTAGS for mentioned coins
+  5. Your take
+- Include $CASHTAGS for mentioned coins
 - End with 2-3 #hashtags
 - Add engaging question
 
 OUTPUT ONLY THE POST TEXT.""",
 
-    'education': """Write a DETAILED educational Binance Square post.
+    'education': """Write a DETAILED educational post for Binance Square.
 
 Topic: {title}
 
+⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS (including spaces)
+⚠️ COUNT characters before outputting
+⚠️ If your draft exceeds 1800, CUT at the last complete sentence
+
 Rules:
-- Length: 1200-1800 characters (DEEP dive!)
+- Target: 1400-1700 characters
 - Start with 📚
 - Structure:
-  1. Hook (why this matters)
-  2. What it is (definition)
-  3. How it works (explanation)
-  4. Key benefits (3-4 bullets)
-  5. Common mistakes to avoid (2-3 bullets)
-  6. Practical tips (1-2 bullets)
-  7. Conclusion (1 sentence)
+  1. Hook
+  2. What it is
+  3. How it works
+  4. Key benefits (2-3 bullets)
+  5. Common mistakes (2 bullets)
+  6. Practical tip
 - Include $CASHTAGS if relevant
 - End with 2-3 #hashtags
 - Add engaging question
@@ -360,15 +403,17 @@ OUTPUT ONLY THE POST TEXT.""",
 
 Market Data: {title}
 
+⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS (including spaces)
+⚠️ COUNT characters before outputting
+
 Rules:
-- Length: 1000-1600 characters
+- Target: 1400-1700 characters
 - Start with 📊
 - Structure:
   1. Current state
-  2. Key levels (support/resistance)
-  3. Trends and momentum
-  4. What to watch
-  5. Scenarios (bullish/bearish)
+  2. Key levels
+  3. Trends
+  4. Scenarios
 - Include $BTC, $ETH
 - End with 2-3 #hashtags
 - Add engaging question
@@ -379,32 +424,37 @@ OUTPUT ONLY THE POST TEXT.""",
 
 Project: {title}
 
+⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS (including spaces)
+⚠️ COUNT characters before outputting
+
 Rules:
-- Length: 1200-1800 characters
+- Target: 1400-1700 characters
 - Start with 💡
 - Structure:
   1. What it is
-  2. The problem it solves
+  2. Problem it solves
   3. How it works
-  4. Key features (3-4 bullets)
-  5. Why it matters
-  6. Potential risks
+  4. Key features (2-3 bullets)
+  5. Risks
 - Include $CASHTAGS
 - End with 2-3 #hashtags
 - Add engaging question
 
 OUTPUT ONLY THE POST TEXT.""",
 
-    'promotion': """Write a DETAILED Binance promotional post.
+    'promotion': """Write a promotional Binance post.
 
 Promotion: {title}
 
+⚠️ ABSOLUTE MAXIMUM: 1500 CHARACTERS
+⚠️ COUNT before outputting
+
 Rules:
-- Length: 800-1200 characters
+- Target: 1000-1400 characters
 - Start with 🎁
 - Structure:
-  1. Attention grabber
-  2. What's the offer
+  1. Hook
+  2. Offer
   3. How to participate
   4. Benefits
   5. Urgency
@@ -414,15 +464,18 @@ Rules:
 
 OUTPUT ONLY THE POST TEXT.""",
 
-    'recap': """Write a DETAILED daily crypto recap.
+    'recap': """Write a daily crypto recap.
 
 Data: {title}
 
+⚠️ ABSOLUTE MAXIMUM: 1800 CHARACTERS
+⚠️ COUNT before outputting
+
 Rules:
-- Length: 1000-1400 characters
+- Target: 1400-1700 characters
 - Start with 🌙
 - Structure:
-  1. Today's summary
+  1. Summary
   2. Key movements
   3. What mattered
   4. Tomorrow's watch
@@ -434,34 +487,82 @@ Rules:
 OUTPUT ONLY THE POST TEXT.""",
 }
 
-# ===== 10. الكتابة =====
+# ===== الكتابة (مع تحذير + قص ذكي احتياطي) =====
 def write_post(prompt, max_retries=3):
+    last_length = 0
+    
     for attempt in range(max_retries):
         try:
+            user_prompt = prompt
+            
+            # إذا كانت محاولة ثانية أو ثالثة، أضف تحذير
+            if attempt > 0 and last_length > MAX_LENGTH:
+                excess = last_length - MAX_LENGTH
+                user_prompt += f"\n\n⚠️⚠️ PREVIOUS ATTEMPT WAS {last_length} CHARACTERS."
+                user_prompt += f"\n⚠️⚠️ YOU EXCEEDED BY {excess} CHARACTERS."
+                user_prompt += f"\n⚠️⚠️ YOU MUST CUT AT LEAST {excess + 200} CHARACTERS."
+                user_prompt += f"\n⚠️⚠️ BE CONCISE. TARGET 1400-1700."
+            
             response = groq_client.chat.completions.create(
                 model=MODEL,
                 messages=[
-                    {"role": "system", "content": "You are a professional crypto content writer for Binance Square. Write detailed, engaging posts. Output only the post text."},
-                    {"role": "user", "content": prompt}
+                    {"role": "system", "content": f"You are a crypto writer for Binance Square. ABSOLUTE LIMIT: {MAX_LENGTH} characters including spaces. Output ONLY the post text. If you exceed, cut at last complete sentence."},
+                    {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.8,
+                temperature=0.7,
                 max_tokens=2000
             )
+            
             content = response.choices[0].message.content
-            if content and content.strip():
-                post = fix_tickers(content.strip())
-                post = enhance_post(post)
-                is_good, reason = is_good_quality(post)
-                if is_good:
-                    return post
-                print(f"  ⚠️ {reason}")
+            if not content or not content.strip():
+                continue
+            
+            post = fix_tickers(content.strip())
+            post = enhance_post(post)
+            last_length = len(post)
+            
+            # فحص
+            if last_length > MAX_LENGTH:
+                print(f"  ⚠️ محاولة {attempt+1}: {last_length} حرف (تجاوز)")
                 time.sleep(2)
+                continue
+            
+            is_good, reason = is_good_quality(post)
+            if is_good:
+                return post
+            
+            print(f"  ⚠️ {reason}")
+            time.sleep(2)
+            
         except Exception as e:
             print(f"  ❌ {str(e)[:80]}")
             time.sleep(3)
+    
+    # ⭐ الطبقة الاحتياطية: القص الذكي
+    print(f"  🔧 تفعيل القص الذكي (آخر محاولة)")
+    try:
+        response = groq_client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": f"Write a crypto post. Max {MAX_LENGTH} chars."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=2000
+        )
+        content = response.choices[0].message.content
+        if content:
+            post = fix_tickers(content.strip())
+            post = enhance_post(post)
+            # القص الذكي
+            post = smart_trim(post, MAX_LENGTH)
+            return post
+    except:
+        pass
+    
     return None
 
-# ===== 11. النشر =====
+# ===== النشر =====
 def post_to_square(text):
     url = "https://www.binance.com/bapi/composite/v1/public/pgc/openApi/content/add"
     headers = {
@@ -480,7 +581,7 @@ def post_to_square(text):
     except Exception as e:
         return {"success": False, "error": str(e)[:100]}
 
-# ===== 12. التشغيل =====
+# ===== التشغيل =====
 def run_agent():
     content_type = get_content_type()
     print(f"🚀 بدء - {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC")
